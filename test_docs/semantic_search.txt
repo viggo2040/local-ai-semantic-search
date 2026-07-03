@@ -1,0 +1,1 @@
+Local semantic search allows private documents to be indexed and retrieved by meaning. Ollama generates local embeddings and Chroma stores the vectors persistently. 

@@ -1,0 +1,3 @@
+This project is designed as a local AI assistant for searching documents without sending private files to external cloud services. 
+This additional sentence validates incremental reindexing after file modification. 
+This corrected sentence validates incremental indexing behavior. 

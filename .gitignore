@@ -1,13 +1,45 @@
-node_modules/
-dist/
-.vite/
-.env
-.venv/
+# Python
 __pycache__/
-*.pyc
-backend/data/chroma/
-backend/data/logs/
-backend/data/cache/
-backend/data/registry.sqlite
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+semantica/
+semantica310/
+venv/
+.venv/
+env/
+
+# Logs
+logs/
+*.log
+
+# Local databases and vector stores
+backend/data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Local archives
+*.zip
+
+# OS / IDE
 .DS_Store
-npm-debug.log*
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment variables / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Temporary files
+tmp/
+temp/
