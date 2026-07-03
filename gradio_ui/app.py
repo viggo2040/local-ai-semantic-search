@@ -5,7 +5,7 @@ Fase 13.1:
 - resultados enriquecidos;
 - agrupacion por archivo;
 - criterio visual 1 archivo = 1 resultado;
-- salida JSON original preservada;
+ - salida JSON usada como fuente interna;
 - salida Markdown resumida agregada;
 - endpoint /index-folder agregado;
 - filename removido desde busqueda.
@@ -111,8 +111,8 @@ def normalize_result_item(item: dict, rank: int) -> dict:
     if not extension and file_path:
         extension = Path(str(file_path)).suffix or None
 
-    score = first_existing_value(item, ["final_score", "score", "combined_score", "similarity", "distance", "rank_score", "fts_score", "semantic_score"])
-    chunk_text = first_existing_value(item, ["chunk_text", "text", "content", "snippet", "preview", "metadata_text"])
+    score = first_existing_value(item, ["final_score", "best_score", "score", "combined_score", "similarity", "distance", "rank_score", "fts_score", "semantic_score"])
+    chunk_text = first_existing_value(item, ["chunk_text", "preview_text", "full_text", "text", "content", "snippet", "preview", "metadata_text"])
     chunk_id = first_existing_value(item, ["chunk_id", "id", "document_id", "rowid"])
 
     return {
@@ -159,84 +159,69 @@ def truncate_text(value: str, max_chars: int = 500) -> str:
     return clean_value[:max_chars].rstrip() + "..."
 
 
-def render_grouped_results_markdown(api_payload: dict) -> str:
+def file_type_label(extension: Any) -> str:
+    clean_extension = str(extension or "").strip().lower().lstrip(".")
+    labels = {
+        "txt": "File Text",
+        "pdf": "PDF",
+        "docx": "Word",
+        "xlsx": "Excel",
+        "pptx": "PowerPoint",
+        "png": "Imagen PNG",
+        "avif": "Imagen AVIF",
+    }
+    return labels.get(clean_extension, clean_extension or "No detectado")
+
+
+def parent_location(file_path: str) -> str:
+    path = Path(file_path)
+    parent = str(path.parent)
+    if parent in (".", ""):
+        return ""
+    return parent + "\\"
+
+
+def format_score(score: Any) -> str:
+    if score is None:
+        return ""
+    try:
+        return f"{float(score):.4f}"
+    except (TypeError, ValueError):
+        return str(score)
+
+
+def build_result_table_rows(api_payload: dict, error_message: str) -> list[list[str]]:
     if not api_payload.get("ok", False):
-        return "### Error\n\n```json\n" + pretty_json(api_payload) + "\n```"
+        return [["Error", "", "", "", "", api_payload.get("error", error_message)]]
 
     items = extract_result_items(api_payload)
     grouped_items = group_results_by_file(items)
 
     if not grouped_items:
-        return "### Sin resultados\n\nNo se detectaron resultados estructurados en la respuesta."
+        return [["Sin resultados", "", "", "", "", "No se detectaron resultados estructurados en la respuesta."]]
 
-    lines: list[str] = []
-    lines.append("## Resultados agrupados por archivo")
-    lines.append("")
-    lines.append(f"- Archivos encontrados: {len(grouped_items)}")
-    lines.append(f"- Coincidencias/chunks recibidos: {len(items)}")
-    lines.append("")
-
-    for index, file_item in enumerate(grouped_items, start=1):
-        lines.append(f"### {index}. {file_item['file_name']}")
-        lines.append("")
-        lines.append(f"- Ruta: `{file_item['file_path']}`")
-        lines.append(f"- Extension: `{file_item['extension'] or 'no detectada'}`")
-        lines.append(f"- Coincidencias: `{file_item['matches_count']}`")
-        lines.append(f"- Mejor ranking: `{file_item['best_rank']}`")
-        lines.append(f"- Mejor score: `{file_item['best_score']}`")
-        lines.append("")
-        lines.append("<details>")
-        lines.append("<summary>Ver snippets</summary>")
-        lines.append("")
-
-        for chunk_index, chunk in enumerate(file_item["chunks"], start=1):
-            snippet = truncate_text(chunk["chunk_text"], max_chars=700)
-            lines.append(f"#### Snippet {chunk_index}")
-            lines.append("")
-            lines.append(f"- Rank: `{chunk['rank']}`")
-            lines.append(f"- Chunk ID: `{chunk['chunk_id']}`")
-            lines.append(f"- Score: `{chunk['score']}`")
-            lines.append("")
-            if snippet:
-                lines.append("```text")
-                lines.append(snippet)
-                lines.append("```")
-            else:
-                lines.append("_Sin texto de snippet disponible._")
-            lines.append("")
-
-        lines.append("</details>")
-        lines.append("")
-
-    return "\n".join(lines)
+    rows = []
+    for file_item in grouped_items:
+        chunks = file_item.get("chunks", [])
+        first_chunk = chunks[0] if chunks else {}
+        snippet = truncate_text(str(first_chunk.get("chunk_text", "")), max_chars=300)
+        rows.append([
+            file_item["file_name"],
+            file_type_label(file_item.get("extension")),
+            parent_location(file_item["file_path"]),
+            str(file_item.get("best_rank", "")),
+            format_score(file_item.get("best_score")),
+            snippet,
+        ])
+    return rows
 
 
-def render_filter_results_markdown(api_payload: dict) -> str:
-    if not api_payload.get("ok", False):
-        return "### Error\n\n```json\n" + pretty_json(api_payload) + "\n```"
+def render_grouped_results_table(api_payload: dict) -> list[list[str]]:
+    return build_result_table_rows(api_payload, "No se pudo ejecutar la busqueda.")
 
-    items = extract_result_items(api_payload)
-    grouped_items = group_results_by_file(items)
 
-    if not grouped_items:
-        return "### Sin resultados\n\nNo se detectaron archivos en la respuesta."
-
-    lines: list[str] = []
-    lines.append("## Archivos filtrados")
-    lines.append("")
-    lines.append(f"- Archivos encontrados: {len(grouped_items)}")
-    lines.append(f"- Registros recibidos: {len(items)}")
-    lines.append("")
-
-    for index, file_item in enumerate(grouped_items, start=1):
-        lines.append(f"### {index}. {file_item['file_name']}")
-        lines.append("")
-        lines.append(f"- Ruta: `{file_item['file_path']}`")
-        lines.append(f"- Extension: `{file_item['extension'] or 'no detectada'}`")
-        lines.append(f"- Coincidencias: `{file_item['matches_count']}`")
-        lines.append("")
-
-    return "\n".join(lines)
+def render_filter_results_table(api_payload: dict) -> list[list[str]]:
+    return build_result_table_rows(api_payload, "No se pudo ejecutar el filtro.")
 
 
 def health_info() -> str:
@@ -303,7 +288,7 @@ def index_folder_ui(folder_path: str, recursive: bool, reindex_existing: bool, l
     return pretty_json(api_post("/index-folder", payload=payload, timeout=3600))
 
 
-def search_ui(mode: str, query: str, top_k: Any) -> tuple[str, str]:
+def search_ui(mode: str, query: str, top_k: Any) -> list[list[str]]:
     clean_query = normalize_text(query) or ""
     clean_top_k = normalize_int(top_k, default=20, minimum=1, maximum=200)
 
@@ -314,23 +299,23 @@ def search_ui(mode: str, query: str, top_k: Any) -> tuple[str, str]:
         endpoint = "/search/semantic"
         if not clean_query:
             error_payload = {"ok": False, "error": "La busqueda semantica requiere query."}
-            return render_grouped_results_markdown(error_payload), pretty_json(error_payload)
+            return render_grouped_results_table(error_payload)
         payload = {"query": clean_query, "top_k": clean_top_k}
     elif mode == "Hybrid":
         endpoint = "/search/hybrid"
         if not clean_query:
             error_payload = {"ok": False, "error": "La busqueda hibrida requiere query."}
-            return render_grouped_results_markdown(error_payload), pretty_json(error_payload)
+            return render_grouped_results_table(error_payload)
         payload = {"query": clean_query, "top_k": clean_top_k}
     else:
         error_payload = {"ok": False, "error": f"Modo no soportado: {mode}"}
-        return render_grouped_results_markdown(error_payload), pretty_json(error_payload)
+        return render_grouped_results_table(error_payload)
 
     result = api_post(endpoint, payload=payload, timeout=180)
-    return render_grouped_results_markdown(result), pretty_json(result)
+    return render_grouped_results_table(result)
 
 
-def files_filter_ui(extension: str, filename: str, path_contains: str, text_contains: str, limit: Any) -> tuple[str, str]:
+def files_filter_ui(extension: str, filename: str, path_contains: str, text_contains: str, limit: Any) -> list[list[str]]:
     payload = {
         "extension": normalize_text(extension),
         "filename": normalize_text(filename),
@@ -339,7 +324,7 @@ def files_filter_ui(extension: str, filename: str, path_contains: str, text_cont
         "limit": normalize_int(limit, default=100, minimum=1, maximum=5000),
     }
     result = api_post("/files/filter", payload=payload, timeout=180)
-    return render_filter_results_markdown(result), pretty_json(result)
+    return render_filter_results_table(result)
 
 
 def watcher_status_ui() -> str:
@@ -440,9 +425,13 @@ with gr.Blocks(title="Local Indexed Search Engine") as demo:
         search_query = gr.Textbox(label="query", lines=3)
         search_top_k = gr.Number(label="top_k", value=20, precision=0)
         search_button = gr.Button("Buscar")
-        search_grouped_output = gr.Markdown(label="Resultados agrupados por archivo")
-        search_json_output = gr.Textbox(label="JSON original", lines=28)
-        search_button.click(fn=search_ui, inputs=[search_mode, search_query, search_top_k], outputs=[search_grouped_output, search_json_output])
+        search_grouped_output = gr.Dataframe(
+            headers=["Nombre", "Tipo", "Ubicacion", "Ranking", "Score", "Snippet"],
+            label="Resultados",
+            interactive=False,
+            wrap=True,
+        )
+        search_button.click(fn=search_ui, inputs=[search_mode, search_query, search_top_k], outputs=search_grouped_output)
 
     with gr.Tab("Filtros"):
         gr.Markdown("## Filtros estructurados")
@@ -452,9 +441,13 @@ with gr.Blocks(title="Local Indexed Search Engine") as demo:
         filter_text_contains = gr.Textbox(label="text_contains", placeholder="texto contenido")
         filter_limit = gr.Number(label="limit", value=100, precision=0)
         filter_button = gr.Button("Filtrar")
-        filter_grouped_output = gr.Markdown(label="Archivos filtrados")
-        filter_json_output = gr.Textbox(label="JSON original", lines=28)
-        filter_button.click(fn=files_filter_ui, inputs=[filter_extension, filter_filename, filter_path_contains, filter_text_contains, filter_limit], outputs=[filter_grouped_output, filter_json_output])
+        filter_grouped_output = gr.Dataframe(
+            headers=["Nombre", "Tipo", "Ubicacion", "Ranking", "Score", "Snippet"],
+            label="Archivos filtrados",
+            interactive=False,
+            wrap=True,
+        )
+        filter_button.click(fn=files_filter_ui, inputs=[filter_extension, filter_filename, filter_path_contains, filter_text_contains, filter_limit], outputs=filter_grouped_output)
 
     with gr.Tab("Watcher"):
         gr.Markdown("## Watcher filesystem")
