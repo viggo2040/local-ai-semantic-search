@@ -255,6 +255,27 @@ def filter_files(
     return [dict(row) for row in rows]
 
 
+def get_chunks_by_file_path(file_path: str) -> list[dict]:
+    """Retorna chunks de un archivo ordenados por indice."""
+
+    init_registry()
+
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                chunk_index,
+                text
+            FROM indexed_chunks
+            WHERE file_path = ?
+            ORDER BY chunk_index
+            """,
+            (file_path,),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
 
 def file_exists_in_registry(file_path: str) -> bool:
     """Verifica si un archivo ya existe en el registro SQLite."""
